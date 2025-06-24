@@ -1,0 +1,27 @@
+---
+title: "Data Science Salary Case Study"
+author: "Ahmad Alobaid,    Diego Cuenda,    Natalia Timshina, and    Youssef Benslimane"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+
+
+```{r child='part1.Rmd'}
+
+```
+```{r child='part2.Rmd'}
+
+```
+```{r child='part3.Rmd'}
+
+```
+```{r child='part4.Rmd'}
+
+```
