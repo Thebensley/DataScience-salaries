@@ -1,27 +1,441 @@
 ---
 title: "Data Science Salary Case Study"
-author: "Ahmad Alobaid,    Diego Cuenda,    Natalia Timshina, and    Youssef Benslimane"
+author: "Youssef Benslimane"
 date: "`r Sys.Date()`"
-output: pdf_document
+output:
+  pdf_document: default
+  html_document: default
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+# Introduction 
+
+ The data set “Data Science Salary 2021 to 2023.csv” provides salary information for data scientists across various experience levels and geographical locations. Given the variability in compensation due to these factors, our study focuses on salary_in_usd as the response variable. Since all salaries are converted into USD, this choice ensures consistency in analysis by eliminating currency-related discrepancies.
+
+To gain deeper insights into salary distributions, we employ Bayesian inference, a probabilistic approach that allows for uncertainty quantification and the incorporation of prior knowledge. This study follows a structured methodology:
+	1.	Data Collection and Analysis :  We begin by cleaning and processing the data, followed by descriptive statistics and visualizations to highlight key salary trends.
+	2.	Model Specification and Prior Selection :  We define a Bayesian model, select appropriate prior distributions, and formulate the likelihood function to establish a clear Bayesian framework.
+	3.	Posterior Sampling and Model Estimation :  Using Monte Carlo methods, we estimate model parameters, evaluate convergence, and compare prior and posterior distributions.
+	4.	Predictive Inference : Finally, we derive predictive distributions from the posterior, estimate predictive probabilities, and interpret the results in the context of salary expectations.
+
+We aim to provide a more nuanced and robust understanding of salary distributions compared to traditional statistical approaches. This study will offer valuable insights into how experience level and location influence compensation, while also demonstrating the power of Bayesian methods in real-world salary analysis.
 
 
+# Data Collection and Analysis
+
+```{r}
+rm(list=ls())
+d <- read.csv("Data Science Salary 2021 to 2023.csv")
+
+d$salary <- as.numeric(d$salary_in_usd)
+
+Q1 <- quantile(d$salary, 0.25)
+Q3 <- quantile(d$salary, 0.75)
+IQR_value <- IQR(d$salary_in_usd)
+
+upper_whisker <- Q3 + 1.5 * IQR_value
+lower_whisker <- Q1 - 1.5 * IQR_value
+
+# Filter rows within the whisker range
+data <- subset(d, salary_in_usd >= lower_whisker & salary_in_usd <= upper_whisker)
+head(data)
+# Now check the new distribution
+summary(data$salary_in_usd)
+```
+```{r}
+# Load necessary library
+library(moments)
+
+# Histogram
+hist(data$salary_in_usd, breaks=30, 
+     main="Histogram of yearly salaries", 
+     xlab="Salary")
+
+# Q-Q Plot
+qqnorm(data$salary_in_usd)
+qqline(data$salary_in_usd, col="red")
+
+# Shapiro-Wilk Test
+shapiro_result <- shapiro.test(data$salary_in_usd)
+print(shapiro_result)
+
+# Kolmogorov-Smirnov Test
+ks_result <- ks.test(data$salary_in_usd, "pnorm", mean=mean(data$salary_in_usd), sd=sd(data$salary_in_usd))
+print(ks_result)
+
+# Skewness and Kurtosis
+print(paste("Skewness:", skewness(data$salary_in_usd)))
+print(paste("Kurtosis:", kurtosis(data$salary_in_usd)))
+
+# Descriptive Statistics
+print(paste("Mean:", mean(data$salary_in_usd)))
+print(paste("Median:", median(data$salary_in_usd)))
+```
+
+```{r}
+max(d$salary)
+mean(data$salary_in_usd)
+```
+
+```{r}
+sd(data$salary_in_usd)
+```
 
 
-```{r child='part1.Rmd'}
+```{r}
+min(data$salary_in_usd)
+```
+
+Compared to the rest of the distribution, It appears to be a low salary. It may represent an outlier or a special case, such as part-time, data-entry error or an internship 
+```{r}
+max(data$salary_in_usd)
+```
+# Model specification and prior selection
+
+```{r, echo=FALSE}
+d <- read.csv("Data Science Salary 2021 to 2023.csv")
+
+d$salary <- as.numeric(d$salary_in_usd)
+
+Q1 <- quantile(d$salary, 0.25)
+Q3 <- quantile(d$salary, 0.75)
+IQR_value <- IQR(d$salary_in_usd)
+
+upper_whisker <- Q3 + 1.5 * IQR_value
+lower_whisker <- Q1 - 1.5 * IQR_value
+
+# Filter rows within the whisker range
+data <- subset(d, salary_in_usd >= lower_whisker & salary_in_usd <= upper_whisker)
+```
+
+As we have seen previously, the variance of the variable of interest is very big. Since we are working with salary data, we decide to rescale it to the thousands of USD.
+
+```{r}
+salary <- data$salary_in_usd / 1000
+```
+
+As our dataset has more than 3500 observations, we will assume that the distribution of the variable $X$ is Normal.
+
+$$X | \mu, \sigma^2 \sim N(\mu, \sigma^2)$$
+Let's consider the precision $$\tau = \frac{1}{\sigma^2}$$
+
+Since the salaries follow a Gaussian distribution, a conjugate prior for $(\mu,\tau)$ is a Normal-Gamma distribution:
+
+$$\mu|\tau \sim N(m, \frac{1}{c\tau})$$
+$$\tau \sim Gamma(\frac{a}{2}, \frac{b}{2}) $$
+
+First, we set the prior parameters. Since we cannot consider experts’ opinions in our case, we assume non-informative priors.
+
+```{r}
+m=0; c=0.1; a=0.1; b=0.1
+```
+
+The posterior in that case will be calculated with the following formulas:
+
+$$\mu|\tau,data \sim N\Big(m^*, \frac{1}{c^*\tau}\Big)$$
+
+$$\tau|data \sim Gamma\Big(\frac{a^*}{2}, \frac{b^*}{2}\Big) $$
+
+where $m^* = \frac{cm+n\bar{x}}{c+n}$, $c^* = c+n$, $a^* = a+n$, $b^* = b + (n-1)s^2 + \frac{cn}{c+n}(m-\bar{x})^2$
+
+```{r}
+n=length(salary)
+mean.sal=mean(salary)
+var.sal=var(salary)
+
+m.ast=(c*m+n*mean.sal)/(c+n)
+c.ast=c+n
+a.ast=a+n
+b.ast=b+(n-1)*var.sal+c*n*(m-mean.sal)^2/(c+n)
+
+cat('m* =', m.ast, ', c* =', c.ast, ', a* =', a.ast, ', b* =', b.ast)
+```
+Thus, the joint posterior distribution of the Gaussian parameters is:
+
+$$\mu|\tau,data \sim N\Big(134.3, \frac{1}{3698.1\tau}\Big)$$
+
+$$\tau|data \sim Gamma\Big(\frac{3698.1}{2}, \frac{12422758}{2}\Big) $$
+
+Now, let's plot joint prior and posterior distributions for $\mu$ and $\tau$.
+
+```{r, warning=FALSE}
+library(ggplot2)
+library(patchwork)
+
+# sample from prior
+set.seed(42)
+tau_prior_samples = rgamma(1000, shape = a, rate = b)
+tau_prior_samples = pmax(tau_prior_samples, 1e-4) 
+mu_prior_samples = rnorm(1000, mean = m, sd = sqrt(1 / (c * tau_prior_samples)))
+df_prior = data.frame(mu = mu_prior_samples, tau = tau_prior_samples)
+
+
+# sample from posterior
+tau_post_samples = rgamma(1000, shape = a.ast, rate = b.ast)
+mu_post_samples = rnorm(1000, mean = m.ast, sd = sqrt(1 / (c.ast * tau_post_samples)))
+df_posterior = data.frame(mu = mu_post_samples, tau = tau_post_samples)
+
+p1 = ggplot(df_prior, aes(x = mu, y = tau)) +
+     stat_density_2d(aes(fill = ..level..), geom = "polygon") +
+     theme_minimal() +
+     ggtitle("Joint prior distribution of Mu and Tau") +
+     theme(plot.title = element_text(size = 10))
+
+
+p2 = ggplot(df_posterior, aes(x = mu, y = tau)) +
+      stat_density_2d(aes(fill = ..level..), geom = "polygon") +
+      theme_minimal() +
+      ggtitle("Joint posterior distribution of Mu and Tau") + 
+      theme(plot.title = element_text(size = 10))
+
+p1+p2
+```
+
+From the left plot we can gather that our prior is not very informative: the mean is broadly spread from negative values around -200 (which is unrealistic as we study the dataset of salaries) to around +300, the precision varies from 0 to more than 1, implying a broad uncertainty about variance. The lighter region corresponds to the higher density - the peak of our prior belief.
+
+On the right plot of joint posterior distribution we witness that the mean is now concentrated around 131-137, meaning that the data has refined our belief. The precision is also concentrated, reducing uncertainty about variance.
+
+The marginal posterior distribution of $\mu$ (given the data) is a scaled, shifted Student-t distribution such that:
+
+$$ \frac{\mu - m^*}{\sqrt{b^*/(a^*c^*)}} \sim t_{a^*}$$
+
+To obtain a 95% credible interval for $\mu$, we will use the following formula:
+
+$$CI(\mu) = m^* \pm t_{a^*,\alpha/2}\sqrt{\frac{b^*}{a^*c^*}}$$
+
+```{r}
+cat('CI for the mean: [', m.ast-qt(0.975,a.ast)*sqrt(b.ast/(a.ast*c.ast)), ';',
+m.ast+qt(0.975,a.ast)*sqrt(b.ast/(a.ast*c.ast)), ']')
+```
+# Posterior Distribution Approximation
+
+We approximate the posterior distribution using the Metropolis Random Walk Algorithm. Before analyzing the data, we assumed a prior belief that the mean salary is 45K USD per year, with a standard deviation of 5K. We set the maximum salary at 500K, which aligns with the threshold for the highest tax bracket (90%) ^[https://en.wikipedia.org/wiki/Maximum_wage]. For the minimum salary, we used the US federal minimum wage converted to an annual salary ^[https://www.monster.com/career-advice/article/state-minimum-wage] ^[https://www.dol.gov/agencies/whd/posters/flsa].
+
+To achieve an optimal acceptance rate, we experimented with different values of step_sd. The final chosen value was 15, which resulted in an acceptance rate in the 30% range. After running the Metropolis-Hastings algorithm with the estimated mean and standard deviation from the data, we plotted the posterior distribution and compared it to the prior distribution.
+
+```{r, fig.height=4, fig.width=5, fig.cap="Posterior Mean Distribution"}
+library(patchwork)
+
+# prior believe
+mu <- 130
+sigma <- 5
+max_salary <- 500 # the ceiling for the taxes in the US
+min_salary <- 15.080 # min
+
+# step
+step_sd <- 15
+
+# estimated
+salary_mu <- mean(salary)
+salary_sigma <- sd(salary)
+
+
+fprop <- function(theta, mu, sigma, mu2, sigma2){
+  prior <- dnorm(theta, mu, sigma)
+  likelihood <- dnorm(theta, mu2, sigma2)
+  f <- prior * likelihood
+  return(f)
+}
+burnin = 1000
+iters = 10000
+totits = burnin+iters
+thetapost = rep(NA,iters)
+theta = mu
+pac = 0
+small_val <- 0.1^12
+for (i in 2:totits){
+  thetac <- rnorm(1, theta, sd=step_sd)
+  if(thetac>min_salary && thetac < max_salary){
+    postp_with_thetac <- fprop(thetac,mu,sigma,salary_mu,salary_sigma)
+    postp_with_theta <- fprop(theta,mu,sigma,salary_mu,salary_sigma)
+    postp_with_thetac <- max(postp_with_thetac,small_val)
+    postp_with_theta <- max(postp_with_theta, small_val)
+    logal=log(postp_with_thetac)
+    logal=logal-log(postp_with_theta)
+    u <- runif(1)
+    if (log(u)<logal){
+      theta=thetac; if (i>burnin){pac=pac+1}
+    }
+  }
+  if (i>burnin){
+    thetapost[i-burnin] <- theta
+  }
+}
+hist(thetapost,freq=F)
+post_mean <- mean(thetapost)
+c <- integrate(fprop,lower=min_salary,upper=max_salary,mu=mu,sigma=sigma,mu2=salary_mu, sigma2=salary_sigma)$value
+c
+grid <- seq(min_salary, max_salary, 0.4)
+lines(grid, fprop(grid,mu,sigma,salary_mu,salary_sigma)/c,type="l")
+prob_of_acc <- pac / iters # Probability of acceptance
+ci <- quantile(thetapost, probs=c(0.025, 0.975)) # Credible Interval
+cat("\nProbability of Acceptance: ", prob_of_acc)
+cat("\nPosterior Mean: ", post_mean)
+cat("\nCredible Interval: ", ci)
+```
+```{r, fig.height=4, fig.width=5, fig.cap="Showing the Prior vs the Posterior"}
+# Normalized prior density
+prior_den <- dnorm(grid, mu, sigma) / 
+                 (pnorm(max_salary, mu, sigma) - pnorm(min_salary, mu, sigma))
+post_den <- fprop(grid, mu, sigma, salary_mu, salary_sigma) / c
+
+# Plot the historgram to compare the prior and the posterior
+hist(thetapost, freq=FALSE,
+     main="Prior vs. Posterior Mean",
+     xlab="posterior mean sample")
+
+# prior line
+lines(grid, prior_den, col="red", lwd=4, lty=2)
+
+# post line
+lines(grid, post_den, col="blue", lwd=4)
+
+legend("topright", legend=c("Prior", "Posterior"), 
+       col=c("red", "blue"), lwd=2, lty=c(2,1))
 
 ```
-```{r child='part2.Rmd'}
+
+
+
+Next, we assessed MCMC convergence. The trace plot exhibits stationarity, showing that the chain fluctuates around a constant mean and variance, indicating convergence. However, the autocorrelation plot reveals a strong dependence between samples, meaning successive values are highly correlated. To mitigate this, we applied thinning with a factor of 10, selecting every 10th sample while discarding the rest. After thinning, the autocorrelation plot shows a significant reduction in dependence, resulting in a more independent posterior sample.
+
+```{r, fig.width=4, fig.height=3, fig.cap="Trace of the posterior mean"}
+plot(thetapost,type='l',ylab=expression(theta),xlab='iters')
+```
+
+
+
+```{r, fig.height=3, fig.width=4, fig.cap="Checking the convergence over time (iterations)"}
+plot(cumsum(thetapost)/c(1:iters),type='l',ylab=expression(bar(theta)),xlab='iters')
+```
+
+```{r, fig.height=3, fig.width=4, fig.cap="Autocorrelation of the posterior sample"}
+acf(thetapost, main="")
 
 ```
-```{r child='part3.Rmd'}
+
+
+```{r, fig.height=3, fig.width=4, fig.cap="Trace after thining"}
+thin <- 10  
+thetapost_thinned <- thetapost[seq(1, length(thetapost), by=thin)]
+plot(thetapost_thinned,type='l',xlab='iters')
+```
+```{r, fig.height=3, fig.width=4 , fig.cap="Autocorrelation after thining"}
+acf(thetapost_thinned,main='')
+```
+```{r, echo=FALSE, eval=FALSE}
+d <- read.csv("Data Science Salary 2021 to 2023.csv")
+
+d$salary <- as.numeric(d$salary_in_usd)
+
+Q1 <- quantile(d$salary, 0.25)
+Q3 <- quantile(d$salary, 0.75)
+IQR_value <- IQR(d$salary_in_usd)
+
+upper_whisker <- Q3 + 1.5 * IQR_value
+lower_whisker <- Q1 - 1.5 * IQR_value
+
+# Filter rows within the whisker range
+data <- subset(d, salary_in_usd >= lower_whisker & salary_in_usd <= upper_whisker)
+
+salary <- data$salary_in_usd / 1000
+
+m=0; c=0.1; a=0.1; b=0.1
+
+n=length(salary)
+mean.sal=mean(salary)
+var.sal=var(salary)
+
+m.ast=(c*m+n*mean.sal)/(c+n)
+c.ast=c+n
+a.ast=a+n
+b.ast=b+(n-1)*var.sal+c*n*(m-mean.sal)^2/(c+n)
+
+# sample from posterior
+tau_post_samples = rgamma(1000, shape = a.ast, rate = b.ast)
+mu_post_samples = rnorm(1000, mean = m.ast, sd = sqrt(1 / (c.ast * tau_post_samples)))
 
 ```
-```{r child='part4.Rmd'}
 
+# Predicting salaries from our data
+
+In this section, we are going to predict the probability of having a salary over a given threshold.
+
+Since we have assumed a normal-gamma conjugate prior for $(\mu,\tau)$, the joint distribution of $(X,\tau | data)$ is a normal-gamma distribution with parameters $m^*$, $c^**$, $a^*$, $b^*$:
+
+$$X|\tau , data \sim N\Big(m^*, \frac{1}{c^{**}\tau}\Big)$$
+$$\tau|data \sim Gamma\Big(\frac{a^*}{2}, \frac{b^*}{2}\Big) $$
+
+where $c^{**} = c^{*} / (c^{*}+1)$. 
+
+Consequently, the predictive distribution of future observations $(X_{n+1} | data)$ is a scaled, shifted Student-t distribution: 
+
+$$ \frac{X_{n+1}-m^*}{\sqrt{b^*/(a^*c^{**})}} \sim  t_{a^*}$$
+
+```{r}
+c.ast2 <- c.ast / (c.ast + 1)
+
+cat('m* =', m.ast, ', c* =', c.ast, ', a* =', a.ast,', b* =', b.ast,', c** =', c.ast2)
 ```
+
+That is, for our case of study:
+
+$$ \frac{X_{n+1}-134.2493}{\sqrt{12422758/(3698.1 \cdot 0.9997297)}} \sim  t_{3698.1}$$
+In order to illustrate this, we have plotted the estimated predictive density for future observations on top of the histogram of yearly salaries.
+
+```{r}
+hist(salary, breaks=30, main="Histogram of yearly salaries", 
+     xlab="Salary", freq = FALSE)
+
+x.axis <- seq(5,300,by=1)
+scale <- sqrt(b.ast/(a.ast * c.ast2))
+lines(x.axis,dt((x.axis-m.ast)/scale,a.ast)/scale)
+```
+
+As a result, the predictive probability of getting paid over a threshold salary $Sh$ given our data is:
+
+$$  Pr(X_{n+1} > S_h | data) =  Pr\Big(t_{a^*} > \frac{S_h-m^*}{\sqrt{b^*/(a^*c^{**})}}\Big) $$
+
+For instance, the probability of earning a salary over $200k$ a year is:
+
+```{r}
+sh <- 200
+pt((sh-m.ast)/scale, a.ast, lower.tail=FALSE)
+```
+In other words, it is unlikely to have a salary over $200k$ a year.
+
+An alternative approach is to use the posterior samples for $\mu$ and $\tau$ that we plotted before to obtain a sample from the predictive distribution. To do so, we have generated random observations following normal distributions with those values of $\mu$ and $\tau$:
+
+```{r}
+pred_salaries <- rnorm(1000, mean=mu_post_samples, sd=1/sqrt(tau_post_samples))
+
+hist(pred_salaries, breaks=30, main="Histogram of predicted salaries", 
+     xlab="Salary", freq = FALSE)
+```
+
+In this case, the probability of earning a salary over a given threshold $S_h$ is:
+
+$$ Pr(X_{n+1} > S_h | data) = \frac{1}{n} \sum_{j=1}^{n} 1_{\{X_j > S_h\}}$$
+That is, the proportion of salaries over the selected threshold.
+
+As a result,the probability of earning a salary over $200k$ a year is:
+
+```{r}
+mean(pred_salaries > sh)
+```
+In other words, a probability similar to the one obtained before from a shifted Student-t distribution.
+
+# Conclusions and summary
+
+For this case of study we have used a data set which includes salary information in USD for data scientists across
+various experience levels and geographical locations. After an exhaustive analysis of the data, we decided to assume a normal distribution for the variable under study. 
+
+As a result, a conjugate prior for the parameters of the distribution of salaries $(\mu,\tau)$ is a Normal-Gamma distribution with parameters $m$, $c$, $a$, $b$. As we could not consider experts’ opinions in our case, we assumed non-informative priors to compute the parameters corresponding to the joint posterior distribution. In order to compare the joint prior and posterior distributions for $\mu$ and $\tau$, we sampled $1000$ values for this parameters, concluding that the data efficiently refine our naive initial belief. Besides this, we computed a 95\% credible interval for $\mu$ from the marginal posterior distribution of this parameter.
+
+We also tried an alternative approach to estimate the posterior distribution of $\mu$ using a MCMC method. To do so, we implemented a Metropolis Random Walk Algorithm using a normal prior whose parameters were taken from the literature. We assessed MCMC convergence and autocorrelation of the implemented algorithm, and decided to apply a thinning with a factor of 10 to avoid autocorrelation.
+
+Since we assumed a normal-gamma conjugate prior for $(\mu,\tau)$, the joint distribution of $(X,\tau | data)$ is a
+normal-gamma distribution, and the predictive distribution of future observations follows a scaled, shifted Student-t distribution. We computed the corresponding parameters to estimate the probability of earning a salary over a given threshold. In addition, the posterior samples for $\mu$ and $\tau$ were used to obtain a sample from the predictive distribution and estimate probabilities from it. As an example, we estimated that the probability of earning a salary over $200k$ a year is between $10\%$ and $15\%$.
